@@ -1,3 +1,4 @@
+using Bencodex;
 using Bencodex.Types;
 using Libplanet.Crypto;
 using Nekoyume.Battle;
@@ -13,6 +14,7 @@ namespace NineChroniclesUtilBackend.Repositories;
 
 public class CpRepository
 {
+    private Codec _codec = new();
     private StateGetter _stateGetter;
 
     public CpRepository(IStateService stateService)
@@ -23,8 +25,8 @@ public class CpRepository
     public async Task<int?> CalculateCp(
         Avatar avatar,
         int characterId,
-        IEnumerable<string> equipmentIds,
-        IEnumerable<string> costumeIds,
+        IReadOnlyCollection<Costume> costumes,
+        IReadOnlyCollection<Equipment> equipments,
         IEnumerable<(int id, int level)> runeOption
     )
     {
@@ -35,21 +37,14 @@ public class CpRepository
             var characterRow = await GetCharacterRow(characterId);
             var costumeStatSheet = await _stateGetter.GetSheet<CostumeStatSheet>();
             var collectionSheets = await _stateGetter.GetSheet<CollectionSheet>();
-
-            var inventoryState = await _stateGetter.GetInventoryState(avatarAddress);
-
-            List<Equipment> equipments = inventoryState
-                .Equipments
-                .Where(x => x.Equipped).ToList();
-            List<Costume> costumes = inventoryState
-                .Costumes
-                .Where(x => x.Equipped).ToList();
-            List<RuneOptionSheet.Row.RuneOptionInfo> runes = runeOption.Select(x => GetRuneOptionInfo(x.id, x.level).Result).ToList();
+            
+            var runes = runeOption.Select(x => GetRuneOptionInfo(x.id, x.level).Result).ToList();
             var collectionStates = await _stateGetter.GetCollectionStates([avatarAddress]);
             var modifiers = new Dictionary<Address, List<StatModifier>>
             {
-                [avatarAddress] = new(),
+                [avatarAddress] = [],
             };
+
             if (collectionStates.Count > 0)
             {
                 foreach (var (address, state) in collectionStates)
