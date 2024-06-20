@@ -6,13 +6,14 @@ using Serilog;
 
 namespace Mimir.Worker.Handler;
 
-public class BattleArenaHandler : BaseActionHandler
+public class BattleArenaHandler(IStateService stateService, MongoDbService store) :
+    BaseActionHandler(
+        stateService,
+        store,
+        "^battle_arena[0-9]*$",
+        Log.ForContext<BattleArenaHandler>())
 {
-    public BattleArenaHandler(IStateService stateService, MongoDbService store)
-        : base(stateService, store, "^battle_arena[0-9]*$", Log.ForContext<BattleArenaHandler>())
-    { }
-
-    public override async Task HandleAction(
+    protected override async Task HandleAction(
         string actionType,
         long processBlockIndex,
         Dictionary actionValues
@@ -21,7 +22,7 @@ public class BattleArenaHandler : BaseActionHandler
         var myAvatarAddress = new Address(actionValues["maa"]);
         var enemyAvatarAddress = new Address(actionValues["eaa"]);
 
-        _logger.Information(
+        Logger.Information(
             "Handle battle_arena, my: {MyAvatarAddress}, enemy: {EnemyAvatarAddress}",
             myAvatarAddress,
             enemyAvatarAddress
@@ -29,29 +30,29 @@ public class BattleArenaHandler : BaseActionHandler
 
         try
         {
-            var roundData = await _stateGetter.GetArenaRoundData(processBlockIndex);
-            var myArenaScore = await _stateGetter.GetArenaScoreState(
+            var roundData = await StateGetter.GetArenaRoundData(processBlockIndex);
+            var myArenaScore = await StateGetter.GetArenaScoreState(
                 myAvatarAddress,
                 roundData.ChampionshipId,
                 roundData.Round
             );
-            var myArenaInfo = await _stateGetter.GetArenaInfoState(
+            var myArenaInfo = await StateGetter.GetArenaInfoState(
                 myAvatarAddress,
                 roundData.ChampionshipId,
                 roundData.Round
             );
-            var enemyArenaScore = await _stateGetter.GetArenaScoreState(
+            var enemyArenaScore = await StateGetter.GetArenaScoreState(
                 enemyAvatarAddress,
                 roundData.ChampionshipId,
                 roundData.Round
             );
-            var enemyArenaInfo = await _stateGetter.GetArenaInfoState(
+            var enemyArenaInfo = await StateGetter.GetArenaInfoState(
                 enemyAvatarAddress,
                 roundData.ChampionshipId,
                 roundData.Round
             );
 
-            await _store.UpsertStateDataAsyncWithLinkAvatar(
+            await Store.UpsertStateDataAsyncWithLinkAvatar(
                 new StateData(
                     myArenaScore.Address,
                     new ArenaState(
@@ -64,7 +65,7 @@ public class BattleArenaHandler : BaseActionHandler
                 ),
                 myAvatarAddress
             );
-            await _store.UpsertStateDataAsyncWithLinkAvatar(
+            await Store.UpsertStateDataAsyncWithLinkAvatar(
                 new StateData(
                     enemyArenaScore.Address,
                     new ArenaState(
@@ -80,7 +81,7 @@ public class BattleArenaHandler : BaseActionHandler
         }
         catch (InvalidCastException ex)
         {
-            _logger.Error(
+            Logger.Error(
                 "Failed to arena states. my: {MyAvatarAddress}, enemy: {EnemyAvatarAddress}, error:\n{Error}",
                 myAvatarAddress,
                 enemyAvatarAddress,

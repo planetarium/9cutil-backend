@@ -3,15 +3,9 @@ using Nekoyume.Model.State;
 
 namespace Mimir.Worker.Models;
 
-public class StateData : BaseData
+public class StateData(Address address, State state) : BaseData
 {
-    public Address Address { get; }
+    public Address Address { get; } = address;
 
-    public State State { get; }
-
-    public StateData(Address address, State state)
-    {
-        Address = address;
-        State = state;
-    }
+    public State State { get; } = state;
 }

@@ -3,6 +3,7 @@ using Bencodex.Types;
 using HeadlessGQL;
 using Libplanet.Crypto;
 using Libplanet.Action.State;
+using Libplanet.Types.Assets;
 using Libplanet.Types.Blocks;
 using StrawberryShake;
 
@@ -50,5 +51,34 @@ public class HeadlessStateService(IHeadlessGQLClient client) : IStateService
         result.EnsureNoErrors();
 
         return result.Data.NodeStatus.Tip.Index;
+    }
+
+    public async Task<FungibleAssetValue?> GetBalance(Address address, Currency currency)
+    {
+        var currencyInput = new CurrencyInput
+        {
+            Ticker = currency.Ticker,
+            DecimalPlaces = currency.DecimalPlaces,
+            MaximumSupplyMajorUnit = currency.MaximumSupply?.MajorUnit.ToString(),
+            MaximumSupplyMinorUnit = currency.MaximumSupply?.MinorUnit.ToString(),
+            Minters = currency.Minters?.Select(minter => minter.ToString()).ToList(),
+            TotalSupplyTrackable = currency.TotalSupplyTrackable,
+        };
+        var result = await client.GetBalance.ExecuteAsync(address.ToString(), currencyInput);
+        result.EnsureNoErrors();
+
+        if (result.Data is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return FungibleAssetValue.Parse(currency, result.Data.StateQuery.Balance.Quantity);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
     }
 }

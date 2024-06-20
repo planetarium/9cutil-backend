@@ -1,27 +1,28 @@
-using System.Text.RegularExpressions;
 using Bencodex;
 using Bencodex.Types;
 using HeadlessGQL;
+using Libplanet.Action.Loader;
 using Mimir.Worker.Handler;
 using Mimir.Worker.Services;
-using Nekoyume.Model.State;
+using Nekoyume.Action.Loader;
 using Serilog;
 
 namespace Mimir.Worker.Poller;
 
 public class BlockPoller : BaseBlockPoller
 {
+    private static readonly IActionLoader ActionLoader = new NCActionLoader();
+
     private readonly Dictionary<string, BaseActionHandler> _handlers;
 
     private readonly IHeadlessGQLClient _headlessGqlClient;
 
-    private readonly Codec Codec = new();
+    private readonly Codec _codec = new();
 
     public BlockPoller(
         IStateService stateService,
         IHeadlessGQLClient headlessGqlClient,
-        MongoDbService store
-    )
+        MongoDbService store)
         : base(stateService, store, "BlockPoller", Log.ForContext<BlockPoller>())
     {
         _headlessGqlClient = headlessGqlClient;
@@ -30,16 +31,17 @@ public class BlockPoller : BaseBlockPoller
         {
             new BattleArenaHandler(stateService, store),
             new PatchTableHandler(stateService, store),
-            new ProductsHandler(stateService, store)
+            new ProductsHandler(stateService, store),
+            new TransferAssetActionHandler(stateService, store),
+            new TransferAssetsActionHandler(stateService, store),
         };
-        _handlers = handlers.ToDictionary(handler => handler.ActionRegex);
+        _handlers = handlers.ToDictionary(handler => handler.ActionTypeRegex);
     }
 
     protected override async Task ProcessBlocksAsync(
         long syncedBlockIndex,
         long currentBlockIndex,
-        CancellationToken stoppingToken
-    )
+        CancellationToken stoppingToken)
     {
         long indexDifference = Math.Abs(currentBlockIndex - syncedBlockIndex);
         int limit = (int)(indexDifference > 100 ? 100 : indexDifference);
@@ -80,42 +82,52 @@ public class BlockPoller : BaseBlockPoller
             return;
         }
 
-        List<List<string>> actionsList = txs.Select(tx =>
-                tx.Actions.Select(action => action.Raw).ToList()
-            )
+        var actions = txs
+            .Where(tx => tx is not null)
+            .SelectMany(tx => tx!.Actions
+                .Where(action => action is not null)
+                .Select(action => action!.Raw)
+                .ToList())
             .ToList();
-
-        Dictionary<string, int> actionTypeCounts = new Dictionary<string, int>();
-        var actionTypeCountsLog = string.Join(
-            ", ",
-            actionTypeCounts.Select(kvp => $"{kvp.Key}: {kvp.Value}")
-        );
         _logger.Information(
-            "GetTransaction Success, tx-count: {TxCount}, action counts: {ActionTypeCounts}",
+            "GetTransaction Success, tx-count: {TxCount}, action counts: {ActionsCounts}",
             txs.Count,
-            actionTypeCountsLog
+            actions.Count
         );
-
-        foreach (var actions in actionsList)
+        var blockIndex = syncedBlockIndex + limit;
+        foreach (var rawAction in actions)
         {
-            foreach (var rawAction in actions)
+            var action = ActionLoader.LoadAction(
+                blockIndex,
+                _codec.Decode(Convert.FromHexString(rawAction)));
+            var actionPlainValue = (Dictionary)action.PlainValue;
+            var actionType = actionPlainValue.ContainsKey("type_id")
+                ? (string)(Text)actionPlainValue["type_id"]
+                : null;
+            if (actionType is null)
             {
-                var action = (Dictionary)Codec.Decode(Convert.FromHexString(rawAction));
-                var actionType = (Text)action["type_id"];
-                var actionValues = action["values"];
+                // FIXME: This action may does not inherit GameAction.
+                //        We should handle this case.
+                _logger.Warning("Action does not have 'type_id' field. action: {Action}", actionPlainValue);
+            }
 
-                foreach (var handler in _handlers.Values)
+            var actionPlainValueInternal = (Dictionary)actionPlainValue["values"];
+            var handled = false;
+            foreach (var handler in _handlers.Values)
+            {
+                if (await handler.TryHandleAction(
+                        blockIndex,
+                        action,
+                        actionType,
+                        actionPlainValueInternal))
                 {
-                    if (Regex.IsMatch(actionType, handler.ActionRegex))
-                    {
-                        await handler.HandleAction(
-                            actionType,
-                            syncedBlockIndex + limit,
-                            (Dictionary)actionValues
-                        );
-                        break;
-                    }
+                    handled = true;
                 }
+            }
+
+            if (!handled)
+            {
+                _logger.Warning("Action is not handled. action: {Action}", actionPlainValue);
             }
         }
 

@@ -9,17 +9,14 @@ using Serilog;
 
 namespace Mimir.Worker.Handler;
 
-public class PatchTableHandler : BaseActionHandler
+public class PatchTableHandler(IStateService stateService, MongoDbService store) :
+    BaseActionHandler(
+        stateService,
+        store,
+        "^patch_table_sheet[0-9]*$",
+        Log.ForContext<PatchTableHandler>())
 {
-    public PatchTableHandler(IStateService stateService, MongoDbService store)
-        : base(
-            stateService,
-            store,
-            "^patch_table_sheet[0-9]*$",
-            Log.ForContext<PatchTableHandler>()
-        ) { }
-
-    public override async Task HandleAction(
+    protected override async Task HandleAction(
         string actionType,
         long processBlockIndex,
         Dictionary actionValues
@@ -44,7 +41,8 @@ public class PatchTableHandler : BaseActionHandler
                 $"Unable to find a class type matching the table name '{tableName}' in the specified namespace."
             );
         }
-        _logger.Information("Handle patch_table, table: {TableName} ", tableName);
+
+        Logger.Information("Handle patch_table, table: {TableName} ", tableName);
 
         await SyncSheetStateAsync(sheetType);
     }
@@ -53,7 +51,7 @@ public class PatchTableHandler : BaseActionHandler
     {
         if (sheetType == typeof(ItemSheet) || sheetType == typeof(QuestSheet))
         {
-            _logger.Information("ItemSheet, QuestSheet is not Sheet");
+            Logger.Information("ItemSheet, QuestSheet is not Sheet");
             return;
         }
 
@@ -62,7 +60,7 @@ public class PatchTableHandler : BaseActionHandler
             || sheetType == typeof(WorldBossBattleRewardSheet)
         )
         {
-            _logger.Information(
+            Logger.Information(
                 "WorldBossKillRewardSheet, WorldBossBattleRewardSheet will handling later"
             );
             return;
@@ -73,8 +71,9 @@ public class PatchTableHandler : BaseActionHandler
         {
             throw new InvalidCastException($"Type {sheetType.Name} cannot be cast to ISheet.");
         }
+
         var sheetAddress = Addresses.TableSheet.Derive(sheetType.Name);
-        var sheetState = await _stateService.GetState(sheetAddress);
+        var sheetState = await StateService.GetState(sheetAddress);
         if (sheetState is not Text sheetValue)
         {
             throw new InvalidCastException($"Expected sheet state to be of type 'Text'.");
@@ -86,6 +85,6 @@ public class PatchTableHandler : BaseActionHandler
             sheetAddress,
             new SheetState(sheetAddress, sheet, sheetType.Name)
         );
-        await _store.UpsertTableSheets(stateData, sheetState.ToDotnetString());
+        await Store.UpsertTableSheets(stateData, sheetState.ToDotnetString());
     }
 }

@@ -47,3 +47,11 @@ query GetDiffs($baseIndex: Long! $changedIndex: Long!) {
     }
   }
 }
+
+query GetBalance($address: Address!, $currency: CurrencyInput!) {
+    stateQuery {
+        balance(address: $address, currency: $currency) {
+            quantity
+        }
+    }
+}

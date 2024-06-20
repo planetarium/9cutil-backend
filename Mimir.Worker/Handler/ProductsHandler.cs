@@ -13,17 +13,14 @@ using Serilog;
 
 namespace Mimir.Worker.Handler;
 
-public class ProductsHandler : BaseActionHandler
+public class ProductsHandler(IStateService stateService, MongoDbService store) :
+    BaseActionHandler(
+        stateService,
+        store,
+        "^register_product[0-9]*$|^cancel_product_registration[0-9]*$|^buy_product[0-9]*$|^re_register_product[0-9]*$",
+        Log.ForContext<ProductsHandler>())
 {
-    public ProductsHandler(IStateService stateService, MongoDbService store)
-        : base(
-            stateService,
-            store,
-            "^register_product[0-9]*$|^cancel_product_registration[0-9]*$|^buy_product[0-9]*$|^re_register_product[0-9]*$",
-            Log.ForContext<ProductsHandler>()
-        ) { }
-
-    public override async Task HandleAction(
+    protected override async Task HandleAction(
         string actionType,
         long processBlockIndex,
         Dictionary actionValues
@@ -33,13 +30,13 @@ public class ProductsHandler : BaseActionHandler
 
         foreach (var avatarAddress in avatarAddresses)
         {
-            _logger.Information(
+            Logger.Information(
                 "Handle products for avatar, avatar: {AvatarAddress} ",
                 avatarAddress
             );
 
             var productsStateAddress = ProductsState.DeriveAddress(avatarAddress);
-            var productsState = await _stateGetter.GetProductsState(avatarAddress);
+            var productsState = await StateGetter.GetProductsState(avatarAddress);
             await SyncWrappedProductsStateAsync(avatarAddress, productsStateAddress, productsState);
         }
     }
@@ -85,7 +82,7 @@ public class ProductsHandler : BaseActionHandler
         await AddNewProductsAsync(avatarAddress, productsStateAddress, productsToAdd);
         await RemoveOldProductsAsync(productsToRemove);
 
-        await _store.UpsertStateDataAsync(
+        await Store.UpsertStateDataAsync(
             new StateData(
                 productsStateAddress,
                 new WrappedProductsState(productsStateAddress, avatarAddress, productsState)
@@ -95,7 +92,7 @@ public class ProductsHandler : BaseActionHandler
 
     private async Task<List<Guid>> GetExistingProductIds(Address productsStateAddress)
     {
-        var existingState = await _store.GetProductsStateByAddress(productsStateAddress);
+        var existingState = await Store.GetProductsStateByAddress(productsStateAddress);
         return existingState == null
             ? new List<Guid>()
             : existingState["State"]
@@ -112,13 +109,13 @@ public class ProductsHandler : BaseActionHandler
     {
         foreach (var productId in productsToAdd)
         {
-            var product = await _stateGetter.GetProductState(productId);
+            var product = await StateGetter.GetProductState(productId);
             var stateData = await CreateStateDataAsync(
                 avatarAddress,
                 productsStateAddress,
                 product
             );
-            await _store.UpsertStateDataAsync(stateData);
+            await Store.UpsertStateDataAsync(stateData);
         }
     }
 
@@ -168,7 +165,7 @@ public class ProductsHandler : BaseActionHandler
     {
         try
         {
-            var costumeStatSheet = await _store.GetSheetAsync<CostumeStatSheet>();
+            var costumeStatSheet = await Store.GetSheetAsync<CostumeStatSheet>();
 
             if (costumeStatSheet != null)
             {
@@ -183,7 +180,7 @@ public class ProductsHandler : BaseActionHandler
         }
         catch (Exception ex)
         {
-            _logger.Error(
+            Logger.Error(
                 $"Error calculating combat point for itemProduct {itemProduct.ProductId}: {ex.Message}"
             );
         }
@@ -198,9 +195,9 @@ public class ProductsHandler : BaseActionHandler
         try
         {
             var crystalEquipmentGrindingSheet =
-                await _store.GetSheetAsync<CrystalEquipmentGrindingSheet>();
+                await Store.GetSheetAsync<CrystalEquipmentGrindingSheet>();
             var crystalMonsterCollectionMultiplierSheet =
-                await _store.GetSheetAsync<CrystalMonsterCollectionMultiplierSheet>();
+                await Store.GetSheetAsync<CrystalMonsterCollectionMultiplierSheet>();
 
             if (
                 crystalEquipmentGrindingSheet != null
@@ -225,7 +222,7 @@ public class ProductsHandler : BaseActionHandler
         }
         catch (Exception ex)
         {
-            _logger.Error(
+            Logger.Error(
                 $"Error calculating crystal metrics for itemProduct {itemProduct.ProductId}: {ex.Message}"
             );
         }
@@ -237,7 +234,7 @@ public class ProductsHandler : BaseActionHandler
     {
         foreach (var productId in productsToRemove)
         {
-            await _store.RemoveProduct(productId);
+            await Store.RemoveProduct(productId);
         }
     }
 }
