@@ -41,6 +41,7 @@ public class BlockPoller : BaseBlockPoller
             new RaidActionHandler(stateService, store),
             new StakeHandler(stateService, store),
             new ClaimStakeRewardHandler(stateService, store),
+            new CombinationSlotStateHandler(stateService, store)
         ];
     }
 

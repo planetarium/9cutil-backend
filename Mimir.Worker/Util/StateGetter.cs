@@ -236,18 +236,28 @@ public class StateGetter
         };
     }
 
-    public async Task<IValue?> GetStateWithLegacyAccount(
-        Address address,
-        Address accountAddress) =>
-        await _service.GetState(address, accountAddress) ??
-        await _service.GetState(address);
+    public async Task<IValue?> GetStateWithLegacyAccount(Address address, Address accountAddress) =>
+        await _service.GetState(address, accountAddress) ?? await _service.GetState(address);
+
+    public async Task<CombinationSlotState?> GetCombinationSlotState(Address slotAddress)
+    {
+        var state = await _service.GetState(slotAddress);
+
+        return state switch
+        {
+            Dictionary dict => new CombinationSlotState(dict),
+            null => null,
+            _ => throw new InvalidCastException()
+        };
+    }
 
     public async Task<IValue?> GetAvatarStateWithLegacyAccount(
         Address avatarAddress,
         Address accountAddress,
-        Address legacyAddress) =>
-        await _service.GetState(avatarAddress, accountAddress) ??
-        await _service.GetState(legacyAddress);
+        Address legacyAddress
+    ) =>
+        await _service.GetState(avatarAddress, accountAddress)
+        ?? await _service.GetState(legacyAddress);
 
     public async Task<ArenaSheet.RoundData> GetArenaRoundData(long index)
     {
